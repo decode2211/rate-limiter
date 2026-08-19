@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  rate_limiter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
