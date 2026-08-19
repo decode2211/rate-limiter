@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(rate_limiter VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON) 
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Threads REQUIRED)
@@ -70,3 +70,7 @@ target_link_libraries(rate_limiter_test PRIVATE rate_limiter_lib GTest::gtest_ma
 
 include(GoogleTest)
 gtest_discover_tests(rate_limiter_test)
+
+# Benchmark binary
+add_executable(benchmark benchmarks/benchmark.cpp)
+target_link_libraries(benchmark PRIVATE rate_limiter_lib)
