@@ -5,6 +5,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Some FetchContent dependencies (e.g. yaml-cpp 0.8.0) declare an old
+# cmake_minimum_required() that modern CMake (4.x) refuses to configure.
+# This tells CMake to treat those as compatible with 3.5+ policies.
+if(NOT CMAKE_POLICY_VERSION_MINIMUM)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+endif()
+
 find_package(Threads REQUIRED)
 
 include(FetchContent)
@@ -47,6 +54,7 @@ set(LIB_SOURCES
     src/token_bucket.cpp
     src/rate_limiter.cpp
     src/server.cpp
+    src/metrices.cpp
 )
 
 add_library(rate_limiter_lib ${LIB_SOURCES})
