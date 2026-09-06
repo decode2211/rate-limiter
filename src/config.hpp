@@ -24,5 +24,9 @@ public:
     RateLimitConfig rate_limit;
     RedisConfig redis;
 
+    // Throws std::runtime_error if the file is missing, is not valid YAML,
+    // or contains a semantically invalid value (e.g. non-positive capacity
+    // or refill_rate, an out-of-range port). Fields simply omitted from an
+    // otherwise-valid file keep their struct defaults above.
     static Config loadFromFile(const std::string& filepath);
 };
