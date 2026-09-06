@@ -47,3 +47,8 @@ RateLimitResult TokenBucket::consume(double tokens) {
 
     return result;
 }
+
+std::chrono::steady_clock::time_point TokenBucket::lastActivity() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return last_refill_;
+}

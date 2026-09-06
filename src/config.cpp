@@ -18,6 +18,14 @@ void validate(const Config& config) {
         throw std::runtime_error(
             "rate_limit.refill_rate must be > 0 (got " + std::to_string(config.rate_limit.refill_rate) + ")");
     }
+    if (config.rate_limit.idle_ttl_multiplier <= 0.0) {
+        throw std::runtime_error(
+            "rate_limit.idle_ttl_multiplier must be > 0 (got " + std::to_string(config.rate_limit.idle_ttl_multiplier) + ")");
+    }
+    if (config.rate_limit.sweep_interval_seconds <= 0.0) {
+        throw std::runtime_error(
+            "rate_limit.sweep_interval_seconds must be > 0 (got " + std::to_string(config.rate_limit.sweep_interval_seconds) + ")");
+    }
     if (config.server.port <= 0 || config.server.port > 65535) {
         throw std::runtime_error(
             "server.port must be between 1 and 65535 (got " + std::to_string(config.server.port) + ")");
@@ -56,6 +64,8 @@ Config Config::loadFromFile(const std::string& filepath) {
         if (root["rate_limit"]) {
             if (root["rate_limit"]["capacity"]) config.rate_limit.capacity = root["rate_limit"]["capacity"].as<double>();
             if (root["rate_limit"]["refill_rate"]) config.rate_limit.refill_rate = root["rate_limit"]["refill_rate"].as<double>();
+            if (root["rate_limit"]["idle_ttl_multiplier"]) config.rate_limit.idle_ttl_multiplier = root["rate_limit"]["idle_ttl_multiplier"].as<double>();
+            if (root["rate_limit"]["sweep_interval_seconds"]) config.rate_limit.sweep_interval_seconds = root["rate_limit"]["sweep_interval_seconds"].as<double>();
         }
 
         if (root["redis"]) {

@@ -15,6 +15,11 @@ public:
 
     RateLimitResult consume(double tokens = 1.0);
 
+    // Timestamp of the last consume() call (i.e. last refill computation).
+    // Used by RateLimiter to decide whether a bucket has gone idle long
+    // enough to be evicted.
+    std::chrono::steady_clock::time_point lastActivity() const;
+
 private:
     void refill();
 

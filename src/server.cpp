@@ -5,8 +5,9 @@
 using json = nlohmann::json;
 
 Server::Server(const Config& config)
-    : config_(config), 
-      rate_limiter_(config.rate_limit.capacity, config.rate_limit.refill_rate) {
+    : config_(config),
+      rate_limiter_(config.rate_limit.capacity, config.rate_limit.refill_rate,
+                    EvictionConfig{config.rate_limit.idle_ttl_multiplier, config.rate_limit.sweep_interval_seconds}) {
     setupRoutes();
 }
 

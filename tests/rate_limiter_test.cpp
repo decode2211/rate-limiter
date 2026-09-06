@@ -63,6 +63,33 @@ TEST(RateLimiterTest, ThreadSafetyUnderConcurrency) {
     EXPECT_FALSE(result.allowed); // 100 capacity exhausted by 100 calls
 }
 
+// --- RateLimiter eviction ---
+
+TEST(RateLimiterTest, EvictsIdleBucketsAndShrinksMap) {
+    EvictionConfig eviction;
+    eviction.idle_ttl_multiplier = 1.0;
+    eviction.sweep_interval_seconds = 0.0; // always eligible to sweep
+
+    // capacity/refill_rate chosen so the idle threshold
+    // (multiplier * capacity / refill_rate) is a few milliseconds.
+    RateLimiter limiter(1.0, 1000.0, eviction);
+
+    constexpr int kNumClients = 50;
+    for (int i = 0; i < kNumClients; ++i) {
+        limiter.check("client_" + std::to_string(i));
+    }
+    EXPECT_EQ(limiter.bucketCount(), static_cast<size_t>(kNumClients));
+
+    // Let all of the above go idle past the eviction threshold.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Sweeping happens on the new-bucket insertion path, so trigger one.
+    limiter.check("trigger_sweep");
+
+    // All 50 idle buckets should have been evicted; only the new one remains.
+    EXPECT_EQ(limiter.bucketCount(), 1u);
+}
+
 // --- TokenBucket edge cases: zero / negative refill_rate ---
 //
 // Config::loadFromFile rejects a non-positive refill_rate for the live

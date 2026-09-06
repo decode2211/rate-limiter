@@ -5,8 +5,10 @@ server:
   port: 8080
 
 rate_limit:
-  capacity: 10          # Maximum number of tokens a bucket can hold
-  refill_rate: 2.0      # Tokens added per second
+  capacity: 10                    # Maximum number of tokens a bucket can hold
+  refill_rate: 2.0                # Tokens added per second
+  idle_ttl_multiplier: 10.0       # Evict a client's bucket after this many "time-to-refill" idle periods
+  sweep_interval_seconds: 60.0    # Minimum time between eviction sweeps
 
 redis:
   enabled: false

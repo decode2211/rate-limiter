@@ -10,6 +10,9 @@ struct ServerConfig {
 struct RateLimitConfig {
     double capacity = 10.0;
     double refill_rate = 2.0;
+    // See EvictionConfig in rate_limiter.hpp for what these control.
+    double idle_ttl_multiplier = 10.0;
+    double sweep_interval_seconds = 60.0;
 };
 
 struct RedisConfig {
