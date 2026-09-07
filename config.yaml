@@ -9,8 +9,3 @@ rate_limit:
   refill_rate: 2.0                # Tokens added per second
   idle_ttl_multiplier: 10.0       # Evict a client's bucket after this many "time-to-refill" idle periods
   sweep_interval_seconds: 60.0    # Minimum time between eviction sweeps
-
-redis:
-  enabled: false
-  host: "127.0.0.1"
-  port: 6379

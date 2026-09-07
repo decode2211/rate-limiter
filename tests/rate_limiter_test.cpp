@@ -152,10 +152,9 @@ TEST(ConfigTest, LoadsValidFileAndDefaultsOmittedFields) {
 
     EXPECT_DOUBLE_EQ(config.rate_limit.capacity, 5.0);
     EXPECT_DOUBLE_EQ(config.rate_limit.refill_rate, 1.5);
-    // server/redis sections were omitted entirely -> struct defaults apply.
+    // server section was omitted entirely -> struct defaults apply.
     EXPECT_EQ(config.server.host, "0.0.0.0");
     EXPECT_EQ(config.server.port, 8080);
-    EXPECT_FALSE(config.redis.enabled);
 }
 
 TEST(ConfigTest, RejectsNonPositiveCapacity) {

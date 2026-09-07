@@ -33,15 +33,6 @@ void validate(const Config& config) {
     if (config.server.host.empty()) {
         throw std::runtime_error("server.host must not be empty");
     }
-    if (config.redis.enabled) {
-        if (config.redis.host.empty()) {
-            throw std::runtime_error("redis.host must not be empty when redis.enabled is true");
-        }
-        if (config.redis.port <= 0 || config.redis.port > 65535) {
-            throw std::runtime_error(
-                "redis.port must be between 1 and 65535 (got " + std::to_string(config.redis.port) + ")");
-        }
-    }
 }
 
 } // namespace
@@ -66,12 +57,6 @@ Config Config::loadFromFile(const std::string& filepath) {
             if (root["rate_limit"]["refill_rate"]) config.rate_limit.refill_rate = root["rate_limit"]["refill_rate"].as<double>();
             if (root["rate_limit"]["idle_ttl_multiplier"]) config.rate_limit.idle_ttl_multiplier = root["rate_limit"]["idle_ttl_multiplier"].as<double>();
             if (root["rate_limit"]["sweep_interval_seconds"]) config.rate_limit.sweep_interval_seconds = root["rate_limit"]["sweep_interval_seconds"].as<double>();
-        }
-
-        if (root["redis"]) {
-            if (root["redis"]["enabled"]) config.redis.enabled = root["redis"]["enabled"].as<bool>();
-            if (root["redis"]["host"]) config.redis.host = root["redis"]["host"].as<std::string>();
-            if (root["redis"]["port"]) config.redis.port = root["redis"]["port"].as<int>();
         }
     } catch (const std::exception& e) {
         throw std::runtime_error("invalid value in config file '" + filepath + "': " + e.what());
