@@ -92,7 +92,7 @@ Runs a standalone, in-process multi-threaded load test (8 threads x 100,000 requ
 
 ## Configuration
 
-All configuration is read from `config.yaml` (or the path passed as the first CLI argument). There are no required environment variables — the service does not read any `getenv` values.
+All configuration is read from `config.yaml` (or the path passed as the first CLI argument). There are no environment variables — the service does not read any `getenv` values.
 
 ```yaml
 server:
@@ -100,20 +100,32 @@ server:
   port: 8080
 
 rate_limit:
-  capacity: 10          # Maximum number of tokens a bucket can hold
-  refill_rate: 2.0       # Tokens added per second
-
-redis:
-  enabled: false
-  host: "127.0.0.1"
-  port: 6379
+  capacity: 10
+  refill_rate: 2.0
+  idle_ttl_multiplier: 10.0
+  sweep_interval_seconds: 60.0
 ```
 
-- `server` — host/port the HTTP server binds to.
-- `rate_limit` — global default capacity and refill rate applied to every client's bucket. Set `capacity`/`refill_rate` to a value greater than 0; a zero or negative `refill_rate` is not validated and will produce incorrect `retry_after` values.
-- `redis` — reserved for a future distributed/shared-state backend. **Currently unused**: the field is parsed but no Redis client is implemented, and the service only ever runs with independent, unshared in-memory state per instance.
+| Key | Type | Default | Purpose |
+|---|---|---|---|
+| `server.host` | string | `"0.0.0.0"` | Interface the HTTP server binds to. |
+| `server.port` | integer | `8080` | Port the HTTP server listens on. |
+| `rate_limit.capacity` | float | `10` | Maximum tokens a client's bucket can hold — its allowed burst size. |
+| `rate_limit.refill_rate` | float | `2.0` | Tokens added per second. |
+| `rate_limit.idle_ttl_multiplier` | float | `10.0` | A client's bucket is evicted once it has sat idle for `idle_ttl_multiplier * (capacity / refill_rate)` seconds — long enough that it would have fully refilled several times over, so evicting it is behaviorally identical to that `client_id` never having been seen. See `src/rate_limiter.hpp`'s `EvictionConfig` for the full reasoning. |
+| `rate_limit.sweep_interval_seconds` | float | `60.0` | Minimum time between eviction sweeps, so a flood of unique `client_id`s doesn't pay for a full sweep on every single new one. |
 
-Any section or field left out of `config.yaml` falls back to the defaults shown above. If the file is missing or invalid, the service logs a warning to stderr and starts with default settings rather than failing to start.
+**Omitted vs. invalid keys are handled differently, on purpose.** A key simply left out of `config.yaml` falls back to its default above — that's a deliberate, supported convenience (a file specifying only `rate_limit.capacity`, say, is valid). A key that's *present but semantically invalid* is a hard startup failure, not a silent fallback: the process prints a `Fatal: <reason>` message to stderr and exits non-zero rather than running with unintended limits. At load time, `Config::loadFromFile` rejects:
+
+- a missing config file, or one that isn't valid YAML
+- `rate_limit.capacity <= 0`
+- `rate_limit.refill_rate <= 0`
+- `rate_limit.idle_ttl_multiplier <= 0`
+- `rate_limit.sweep_interval_seconds <= 0`
+- `server.port` outside `1`–`65535`
+- an empty `server.host`
+
+There is no distributed/shared-backend configuration (e.g. Redis) — the service is in-memory and single-instance only. Running multiple replicas behind a load balancer gives each replica an independent view of every client's quota, which is not shared rate limiting; there's no built-in way around that today. See `PROJECT_AUDIT.md` for what adding a shared backend would actually involve.
 
 ## API
 
