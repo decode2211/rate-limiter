@@ -1,4 +1,5 @@
 #include "rate_limiter.hpp"
+#include "metrices.hpp"
 
 namespace {
 
@@ -33,16 +34,31 @@ RateLimiter::RateLimiter(double capacity, double refill_rate, EvictionConfig evi
 // in-flight request completes safely against the bucket it resolved; a
 // later request for that same client_id simply gets a fresh, full bucket,
 // which is the same outcome as that client_id never having been seen.
+//
+// This also calls into Metrics while holding mutex_ (RateLimiter::mutex_
+// -> Metrics::mutex_). That's safe: Metrics methods never acquire
+// RateLimiter::mutex_ or TokenBucket::mutex_ (see metrices.hpp), so this
+// is the only nesting order that ever occurs -- no cycle.
 void RateLimiter::sweepExpiredLocked(std::chrono::steady_clock::time_point now) {
     auto threshold = idleThreshold(default_capacity_, default_refill_rate_, eviction_.idle_ttl_multiplier);
+    uint64_t evicted_count = 0;
     for (auto it = buckets_.begin(); it != buckets_.end(); ) {
         if (now - it->second->lastActivity() >= threshold) {
             it = buckets_.erase(it);
+            ++evicted_count;
         } else {
             ++it;
         }
     }
     last_sweep_ = now;
+
+    // evicted_count is exactly the number of map entries just erased above,
+    // so active_buckets_ (incremented once per successful insert in
+    // getOrCreateBucket) and buckets_.size() stay in agreement.
+    if (evicted_count > 0) {
+        Metrics::instance().incrementEvictedBuckets(evicted_count);
+        Metrics::instance().decrementActiveBuckets(evicted_count);
+    }
 }
 
 std::shared_ptr<TokenBucket> RateLimiter::getOrCreateBucket(const std::string& client_id) {
@@ -66,6 +82,9 @@ std::shared_ptr<TokenBucket> RateLimiter::getOrCreateBucket(const std::string& c
         client_id,
         std::make_shared<TokenBucket>(default_capacity_, default_refill_rate_)
     );
+    if (inserted) {
+        Metrics::instance().incrementActiveBuckets();
+    }
     return it->second;
 }
 

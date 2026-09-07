@@ -2,11 +2,13 @@
 #include "token_bucket.hpp"
 #include "rate_limiter.hpp"
 #include "config.hpp"
+#include "metrices.hpp"
 #include <thread>
 #include <vector>
 #include <fstream>
 #include <cstdio>
 #include <limits>
+#include <sstream>
 
 TEST(TokenBucketTest, AllowsRequestsUpToCapacity) {
     TokenBucket bucket(3.0, 1.0);
@@ -210,4 +212,81 @@ TEST(ConfigTest, RejectsMalformedYaml) {
 
 TEST(ConfigTest, RejectsMissingFile) {
     EXPECT_THROW(Config::loadFromFile("this_file_does_not_exist.yaml"), std::runtime_error);
+}
+
+// --- Metrics ---
+//
+// Metrics::instance() is a process-wide singleton shared by every test in
+// this binary (and, in the live service, by RateLimiter's own eviction
+// sweep -- see rate_limiter.cpp). So these tests assert on *deltas*
+// around a known sequence of calls rather than absolute values, since
+// other tests running earlier/later in the same process also mutate it.
+
+namespace {
+
+// Finds the line starting with `line_prefix` in Metrics::serialize()'s
+// output and parses the number after it. Used instead of adding
+// test-only numeric getters to Metrics, so tests exercise exactly the
+// same public API (serialize()) that GET /metrics does.
+uint64_t ExtractMetricValue(const std::string& text, const std::string& line_prefix) {
+    std::istringstream iss(text);
+    std::string line;
+    while (std::getline(iss, line)) {
+        if (line.rfind(line_prefix, 0) == 0) {
+            return std::stoull(line.substr(line_prefix.size()));
+        }
+    }
+    ADD_FAILURE() << "metric line not found: " << line_prefix;
+    return 0;
+}
+
+} // namespace
+
+TEST(MetricsTest, AllowedAndRejectedCountersIncrement) {
+    Metrics& metrics = Metrics::instance();
+
+    uint64_t allowed_before = ExtractMetricValue(metrics.serialize(), "rate_limiter_requests_total{status=\"allowed\"} ");
+    uint64_t rejected_before = ExtractMetricValue(metrics.serialize(), "rate_limiter_requests_total{status=\"rejected\"} ");
+
+    metrics.incrementAllowed();
+    metrics.incrementRejected();
+    metrics.incrementRejected();
+
+    std::string after = metrics.serialize();
+    EXPECT_EQ(ExtractMetricValue(after, "rate_limiter_requests_total{status=\"allowed\"} "), allowed_before + 1);
+    EXPECT_EQ(ExtractMetricValue(after, "rate_limiter_requests_total{status=\"rejected\"} "), rejected_before + 2);
+}
+
+TEST(MetricsTest, ActiveBucketsGaugeDropsAfterEvictionSweep) {
+    Metrics& metrics = Metrics::instance();
+
+    uint64_t active_before = ExtractMetricValue(metrics.serialize(), "rate_limiter_active_buckets ");
+    uint64_t evicted_before = ExtractMetricValue(metrics.serialize(), "rate_limiter_buckets_evicted_total ");
+
+    EvictionConfig eviction;
+    eviction.idle_ttl_multiplier = 1.0;
+    eviction.sweep_interval_seconds = 0.0; // always eligible to sweep
+
+    RateLimiter limiter(1.0, 1000.0, eviction);
+
+    constexpr int kNumClients = 20;
+    for (int i = 0; i < kNumClients; ++i) {
+        limiter.check("metrics_client_" + std::to_string(i));
+    }
+    EXPECT_EQ(
+        ExtractMetricValue(metrics.serialize(), "rate_limiter_active_buckets "),
+        active_before + kNumClients);
+
+    // Let all of the above go idle past the eviction threshold, then
+    // trigger a sweep the same way production traffic would: a new
+    // client_id arriving.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    limiter.check("metrics_trigger_sweep");
+
+    std::string after = metrics.serialize();
+    // 20 evicted, 1 new (the trigger client) inserted -> net +1 from before.
+    EXPECT_EQ(ExtractMetricValue(after, "rate_limiter_active_buckets "), active_before + 1);
+    EXPECT_EQ(ExtractMetricValue(after, "rate_limiter_buckets_evicted_total "), evicted_before + kNumClients);
+    // The gauge must agree with the RateLimiter's own bucket count.
+    EXPECT_EQ(limiter.bucketCount(), 1u);
 }
