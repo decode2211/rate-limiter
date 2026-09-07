@@ -1,0 +1,14 @@
+.git
+.gitignore
+build/
+out/
+cmake-build-*/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
