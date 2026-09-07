@@ -137,37 +137,111 @@ Request body:
 { "client_id": "some-client" }
 ```
 
-Response (`200 OK` — allowed):
+| Status | Meaning |
+|---|---|
+| `200 OK` | Allowed — a token was consumed. |
+| `429 Too Many Requests` | Bucket empty. |
+| `400 Bad Request` | Missing/non-string `client_id`, or the body isn't valid JSON. |
 
-```json
-{ "allowed": true, "remaining": 9, "retry_after": 0 }
-```
+The examples below were actually run against a local instance with the default `config.yaml` (`capacity: 10`, `refill_rate: 2.0`).
 
-Response (`429 Too Many Requests` — rejected):
-
-```json
-{ "allowed": false, "remaining": 0, "retry_after": 3 }
-```
-
-Response (`400 Bad Request` — missing/invalid `client_id`, or invalid JSON):
-
-```json
-{ "error": "Missing or invalid 'client_id' field" }
-```
-
-Example:
+First request for a fresh `client_id` — `200`:
 
 ```sh
-curl -X POST http://localhost:8080/check \
-  -H "Content-Type: application/json" \
-  -d '{"client_id": "test-client"}'
+$ curl -i -X POST http://localhost:8080/check -H "Content-Type: application/json" -d '{"client_id":"demo"}'
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"allowed":true,"remaining":9,"retry_after":0}
 ```
+
+After 10 requests for the same `client_id` (its capacity), the 11th — `429`:
+
+```sh
+$ curl -i -X POST http://localhost:8080/check -H "Content-Type: application/json" -d '{"client_id":"demo"}'
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+
+{"allowed":false,"remaining":0,"retry_after":1}
+```
+
+A body that isn't valid JSON — `400`:
+
+```sh
+$ curl -i -X POST http://localhost:8080/check -H "Content-Type: application/json" -d 'not-json'
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{"error":"Invalid JSON payload"}
+```
+
+(A well-formed JSON body missing `client_id`, or with a non-string `client_id`, returns the same `400` with `{"error":"Missing or invalid 'client_id' field"}` instead.)
+
+### `GET /metrics`
+
+Prometheus text exposition format. `Content-Type: text/plain; version=0.0.4`. No auth, no parameters.
+
+Real output captured from a local instance after a mix of allowed, rate-limited, and malformed traffic:
+
+```
+# HELP rate_limiter_requests_received_total Total number of POST /check requests received.
+# TYPE rate_limiter_requests_received_total counter
+rate_limiter_requests_received_total 33
+
+# HELP rate_limiter_requests_total Total number of processed rate limit checks, by outcome.
+# TYPE rate_limiter_requests_total counter
+rate_limiter_requests_total{status="allowed"} 22
+rate_limiter_requests_total{status="rejected"} 10
+
+# HELP rate_limiter_requests_aggregate_total Total cumulative checks (allowed + rejected).
+# TYPE rate_limiter_requests_aggregate_total counter
+rate_limiter_requests_aggregate_total 32
+
+# HELP rate_limiter_active_buckets Number of client buckets currently tracked in memory.
+# TYPE rate_limiter_active_buckets gauge
+rate_limiter_active_buckets 2
+
+# HELP rate_limiter_buckets_evicted_total Total number of idle client buckets evicted.
+# TYPE rate_limiter_buckets_evicted_total counter
+rate_limiter_buckets_evicted_total 0
+
+# HELP rate_limiter_check_duration_seconds Latency of POST /check requests.
+# TYPE rate_limiter_check_duration_seconds histogram
+rate_limiter_check_duration_seconds_bucket{le="0.0001"} 31
+rate_limiter_check_duration_seconds_bucket{le="0.00025"} 31
+rate_limiter_check_duration_seconds_bucket{le="0.0005"} 31
+rate_limiter_check_duration_seconds_bucket{le="0.001"} 31
+rate_limiter_check_duration_seconds_bucket{le="0.0025"} 32
+rate_limiter_check_duration_seconds_bucket{le="0.005"} 32
+rate_limiter_check_duration_seconds_bucket{le="0.01"} 32
+rate_limiter_check_duration_seconds_bucket{le="0.05"} 32
+rate_limiter_check_duration_seconds_bucket{le="+Inf"} 33
+rate_limiter_check_duration_seconds_sum 0.118448
+rate_limiter_check_duration_seconds_count 33
+```
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `rate_limiter_requests_received_total` | counter | Every `POST /check` received, including malformed (`400`) ones. |
+| `rate_limiter_requests_total{status="allowed"\|"rejected"}` | counter | Only requests that reached the rate limiter (excludes `400`s). |
+| `rate_limiter_requests_aggregate_total` | counter | `allowed + rejected`. |
+| `rate_limiter_active_buckets` | gauge | Client buckets currently held in memory right now. |
+| `rate_limiter_buckets_evicted_total` | counter | Idle buckets removed by the eviction sweep, cumulative. |
+| `rate_limiter_check_duration_seconds` | histogram | End-to-end `/check` handler latency, recorded on every request including malformed ones. |
+
+`requests_received_total` (33) is one more than `allowed + rejected` (22 + 10 = 32) in the capture above: one of the 33 requests was the malformed-JSON example, which is received and timed but never reaches the rate limiter, so it isn't counted as allowed or rejected.
+
+### Graceful shutdown
+
+The process installs `SIGINT`/`SIGTERM` handlers (see [Building and running locally](#building-and-running-locally)): on either signal it stops accepting new connections, lets in-flight requests finish, then exits `0`. It does not currently expose this as an HTTP-level "draining" state — a request that arrives after the signal but before the listener actually stops is served normally.
+
+### No `/health` endpoint
+
+There is no dedicated liveness/readiness route. `GET /metrics` responding with `200` is the closest available signal today for an orchestrator health check.
 
 ## Known limitations
 
-- **Single-instance only** — state is in-process memory; running multiple replicas gives each an independent view of every client's quota. The `redis` config block is a placeholder for a future shared backend and has no effect today.
-- **No bucket eviction** — a bucket is created for every distinct `client_id` seen and is never removed, so memory grows with the number of unique clients over the process lifetime.
-- **No `/health` or `/metrics` endpoint** — a `Metrics` counter class exists in `src/metrices.cpp` but is not yet wired into the server.
-- **No graceful shutdown** — the process has no signal handling; stopping it does not drain in-flight requests.
+- **Single-instance only** — see [Configuration](#configuration). There is no shared/distributed backend, so multiple replicas do not share rate-limit state.
+- **No `/health` endpoint** — see [API](#api) above.
 
-See [PROJECT_AUDIT.md](PROJECT_AUDIT.md) for a full engineering audit of the current state of the codebase, including a module-by-module status breakdown and a prioritized list of what's left before a production release.
+See [PROJECT_AUDIT.md](PROJECT_AUDIT.md) for the full engineering audit, including the Redis-backend analysis, a module-by-module status breakdown, and what genuinely remains before a production release.
