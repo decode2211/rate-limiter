@@ -1,0 +1,28 @@
+# CMake build directories (the documented workflow is `mkdir build && cd build`)
+build/
+out/
+cmake-build-*/
+
+# CMake-generated files (in case of an accidental in-source configure)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+_deps/
+
+# Compiled object/library/binary output
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# The project's own build targets, if ever produced outside build/
+/rate_limiter
+/rate_limiter_test
+/benchmark
